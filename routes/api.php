@@ -20,3 +20,6 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/salla/webhook', [WebhookController::class, 'handle'])
     ->name('salla.webhook');
+
+// Health check for Railway
+Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
