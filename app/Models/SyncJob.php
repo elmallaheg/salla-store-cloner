@@ -48,8 +48,8 @@ class SyncJob extends Model
         ]);
     }
 
-    /** يُحدّث العداد بعد كل عنصر */
-    public function increment(bool $success = true): void
+    /** يُحدّث العداد بعد كل عنصر (renamed from increment to avoid Eloquent conflict) */
+    public function tick(bool $success = true): void
     {
         if ($success) {
             $this->increment('processed');
