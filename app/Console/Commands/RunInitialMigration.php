@@ -4,11 +4,13 @@ namespace App\Console\Commands;
 
 use App\Models\SallaStore;
 use App\Models\StorePair;
+use App\Models\Subscription;
 use App\Models\SyncJob;
 use App\Services\Salla\SallaClient;
 use App\Services\Salla\TokenManager;
 use App\Services\Sync\CategorySyncService;
 use App\Services\Sync\ProductSyncService;
+use App\Services\SubscriptionService;
 use Illuminate\Console\Command;
 
 /**
@@ -16,12 +18,6 @@ use Illuminate\Console\Command;
  *
  * الاستخدام:
  *   php artisan salla:migrate {source_store_id} {target_store_id} [--dry-run]
- *
- * الترتيب مهم جدًّا:
- *  1. التصنيفات أولًا (يبني جدول الـ mapping)
- *  2. المنتجات ثانيًا (تحتاج الـ mapping لترجمة معرّفات التصنيفات)
- *
- * idempotent: تشغيل الأمر مرتين لن يُنشئ تكرارًا (SKU + EntityMapping).
  */
 class RunInitialMigration extends Command
 {
@@ -34,7 +30,10 @@ class RunInitialMigration extends Command
 
     protected $description = 'النسخة الأولية الكاملة: نسخ التصنيفات والمنتجات من متجر إلى آخر';
 
-    public function __construct(protected TokenManager $tokens) {
+    public function __construct(
+        protected TokenManager        $tokens,
+        protected SubscriptionService $subscriptions,
+    ) {
         parent::__construct();
     }
 
@@ -44,7 +43,6 @@ class RunInitialMigration extends Command
         $targetId = (int) $this->argument('target');
         $dryRun   = $this->option('dry-run');
 
-        // ======== التحقق من وجود المتجرين ========
         $sourceStore = SallaStore::where('store_id', $sourceId)->first();
         $targetStore = SallaStore::where('store_id', $targetId)->first();
 
@@ -64,11 +62,31 @@ class RunInitialMigration extends Command
             return self::SUCCESS;
         }
 
+        // ======== التحقق من الاشتراك ========
+        $pair = StorePair::where('source_store_id', $sourceId)
+            ->where('target_store_id', $targetId)->first();
+
+        if (!$pair) {
+            $this->error("لم يُنشأ زوج المتاجر بعد. شغّل أولًا: php artisan salla:pair {$sourceId} {$targetId}");
+            return self::FAILURE;
+        }
+
+        $subscription = $this->subscriptions->getOrCreateSubscription($pair);
+
+        if (!$subscription->isActive()) {
+            $this->error("انتهى اشتراك هذا الزوج. يرجى تجديد الاشتراك.");
+            return self::FAILURE;
+        }
+
+        $maxProducts = $subscription->max_products;
+        $planLabel   = Subscription::planData($subscription->plan_slug)['label'] ?? $subscription->plan_slug;
+
+        $this->info("الباقة النشطة: {$planLabel} — الحد الأقصى: {$maxProducts} منتج");
+
         // ======== بناء الـ Clients ========
         $source = new SallaClient($sourceStore, $this->tokens);
         $target = new SallaClient($targetStore, $this->tokens);
 
-        // ======== سجل عملية المزامنة ========
         $job = SyncJob::start($sourceId, $targetId, 'initial_migration');
 
         $this->info("بدء النسخة الأولية: {$sourceId} → {$targetId}");
@@ -77,11 +95,11 @@ class RunInitialMigration extends Command
         $categoriesOnly = $this->option('categories-only');
         $productsOnly   = $this->option('products-only');
 
-        // ======== 1. التصنيفات ========
+        // 1. التصنيفات
         if (!$productsOnly) {
             $this->info('1/2 نسخ التصنيفات...');
-            $catJob  = SyncJob::start($sourceId, $targetId, 'initial_migration', 'category');
-            $catSvc  = new CategorySyncService($source, $target, $sourceId, $targetId);
+            $catJob   = SyncJob::start($sourceId, $targetId, 'initial_migration', 'category');
+            $catSvc   = new CategorySyncService($source, $target, $sourceId, $targetId);
             $catCount = $catSvc->run($catJob);
             $catJob->finish();
             $this->info("   ✓ تصنيفات: {$catCount} منسوخة ({$catJob->failed} فشلت)");
@@ -93,31 +111,26 @@ class RunInitialMigration extends Command
             return self::SUCCESS;
         }
 
-        // ======== 2. المنتجات ========
+        // 2. المنتجات
         if (!$categoriesOnly) {
             $this->info('2/2 نسخ المنتجات...');
-            $prodJob  = SyncJob::start($sourceId, $targetId, 'initial_migration', 'product');
-            $prodSvc  = new ProductSyncService($source, $target, $sourceId, $targetId);
-            $prodCount = $prodSvc->run($prodJob);
+            $prodJob   = SyncJob::start($sourceId, $targetId, 'initial_migration', 'product');
+            $prodSvc   = new ProductSyncService($source, $target, $sourceId, $targetId);
+            $prodCount = $prodSvc->run($prodJob, $maxProducts);
             $prodJob->finish();
             $this->info("   ✓ منتجات: {$prodCount} منسوخة ({$prodJob->failed} فشلت)");
+            if ($prodCount >= $maxProducts) {
+                $this->warn("   ⚠ وصلت للحد الأقصى ({$maxProducts} منتج). رقّ الباقة لنسخ المزيد.");
+            }
         }
 
-        // ======== إنهاء ========
         $job->finish();
         $this->line(str_repeat('─', 50));
         $this->info('اكتملت النسخة الأولية ✅');
 
-        // تأكد أن زوج المتاجر مسجَّل
         StorePair::firstOrCreate(
             ['source_store_id' => $sourceId, 'target_store_id' => $targetId],
-            [
-                'same_merchant'   => false,
-                'sync_categories' => true,
-                'sync_products'   => true,
-                'sync_customers'  => false,
-                'active'          => true,
-            ]
+            ['same_merchant' => false, 'sync_categories' => true, 'sync_products' => true, 'sync_customers' => false, 'active' => true]
         );
 
         return self::SUCCESS;
