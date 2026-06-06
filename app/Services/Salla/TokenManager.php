@@ -77,9 +77,9 @@ class TokenManager
     protected function refresh(SallaStore $store): string
     {
         // مفتاح القفل فريد لكل متجر
-        $lock = Cache::lock("salla_token_refresh_{$store->store_id}", seconds: 60);
+        $lock = Cache::lock("salla_token_refresh_{$store->store_id}", 60);
 
-        return $lock->block(waitSeconds: 30, callback: function () use ($store) {
+        return $lock->block(30, function () use ($store) {
             // بعد الحصول على القفل: أعد قراءة المتجر من القاعدة
             // (يمكن أن طلبًا آخر حدّث التوكن بينما كنا ننتظر)
             $store->refresh();
