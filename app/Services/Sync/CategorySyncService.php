@@ -48,7 +48,7 @@ class CategorySyncService
             try {
                 if ($this->syncOne($cat)) {
                     $count++;
-                    $job?->increment(true);
+                    $job?->tick(true);
                 }
             } catch (\Throwable $e) {
                 Log::error('فشل نسخ تصنيف', [
@@ -56,7 +56,7 @@ class CategorySyncService
                     'name'  => $cat['name'] ?? null,
                     'error' => $e->getMessage(),
                 ]);
-                $job?->increment(false);
+                $job?->tick(false);
                 $job?->logError((string) ($cat['id'] ?? '?'), $e->getMessage());
             }
         }
