@@ -19,29 +19,34 @@ class WebhookController extends Controller
     {
         $event = $request->input('event');
 
-        // app.store.authorize: حدث التثبيت — التوكن نفسه دليل المصدر، لا يحتاج توقيعًا
-        // جميع الأحداث الأخرى تتطلب توقيع HMAC-SHA256 صالحًا
+        // app.store.authorize: no signature needed — token itself proves origin
         if ($event !== 'app.store.authorize' && !$this->verifySignature($request)) {
-            Log::error('Webhook: توقيع غير صالح', [
-                'ip'    => $request->ip(),
-                'event' => $event,
-            ]);
+            Log::error('Webhook: invalid signature', ['ip' => $request->ip(), 'event' => $event]);
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 
         $merchantId = (int) $request->input('merchant');
         $data       = $request->input('data', []);
+
+        // Inject merchant so TokenManager can find the store ID
+        $data['merchant']  = $merchantId;
         $data['_merchant'] = $merchantId;
 
         Log::info('Webhook received', ['event' => $event, 'merchant' => $merchantId]);
 
         match (true) {
-            $event === 'app.store.authorize' => $this->onAuthorize($data, $merchantId),
-            in_array($event, ['product.created', 'product.updated']) => $this->onProductChange($merchantId, $data),
-            $event === 'category.created' => $this->onCategoryChange($merchantId, $data, 'created'),
-            $event === 'category.updated' => $this->onCategoryChange($merchantId, $data, 'updated'),
-            $event === 'app.store.uninstall' => $this->onUninstall($merchantId),
-            default => Log::info('Webhook: unhandled event', ['event' => $event]),
+            $event === 'app.store.authorize'
+                => $this->onAuthorize($data, $merchantId),
+            in_array($event, ['product.created', 'product.updated'])
+                => $this->onProductChange($merchantId, $data),
+            $event === 'category.created'
+                => $this->onCategoryChange($merchantId, $data, 'created'),
+            $event === 'category.updated'
+                => $this->onCategoryChange($merchantId, $data, 'updated'),
+            $event === 'app.store.uninstall'
+                => $this->onUninstall($merchantId),
+            default
+                => Log::info('Webhook: unhandled event', ['event' => $event]),
         };
 
         return response()->json(['ok' => true]);
@@ -56,7 +61,10 @@ class WebhookController extends Controller
                 'expires_at' => $store->token_expires_at,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Failed to save store token', ['merchant' => $merchantId, 'error' => $e->getMessage()]);
+            Log::error('Failed to save store token', [
+                'merchant' => $merchantId,
+                'error'    => $e->getMessage(),
+            ]);
         }
     }
 
@@ -107,7 +115,6 @@ class WebhookController extends Controller
             return false;
         }
 
-        $expected = hash_hmac('sha256', $request->getContent(), $secret);
-        return hash_equals($expected, $signature);
+        return hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature);
     }
 }
