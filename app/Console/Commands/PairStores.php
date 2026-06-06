@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SallaStore;
 use App\Models\StorePair;
+use App\Models\Subscription;
 use Illuminate\Console\Command;
 
 /**
@@ -11,11 +12,6 @@ use Illuminate\Console\Command;
  *
  * الاستخدام:
  *   php artisan salla:pair {source} {target} [--same-merchant] [--no-categories] [--no-products]
- *
- * أمثلة:
- *   php artisan salla:pair 123456 789012
- *   php artisan salla:pair 123456 789012 --same-merchant
- *   php artisan salla:pair 123456 789012 --no-categories
  */
 class PairStores extends Command
 {
@@ -35,7 +31,6 @@ class PairStores extends Command
         $sourceId = (int) $this->argument('source');
         $targetId = (int) $this->argument('target');
 
-        // ======== التحقق من وجود المتجرين ========
         $sourceStore = SallaStore::where('store_id', $sourceId)->first();
         $targetStore = SallaStore::where('store_id', $targetId)->first();
 
@@ -44,12 +39,11 @@ class PairStores extends Command
             return self::FAILURE;
         }
 
-        // ======== التحقق من شرط مزامنة العملاء ========
         $enableCustomers = $this->option('enable-customers');
         $sameMerchant    = $this->option('same-merchant');
 
         if ($enableCustomers && !$sameMerchant) {
-            $this->error('مزامنة العملاء تتطلب --same-merchant (PDPL — نظام حماية البيانات الشخصية).');
+            $this->error('مزامنة العملاء تتطلب --same-merchant (PDPL).');
             return self::FAILURE;
         }
 
@@ -59,12 +53,8 @@ class PairStores extends Command
 
         $active = !$this->option('deactivate');
 
-        // ======== إنشاء/تحديث الزوج ========
         $pair = StorePair::updateOrCreate(
-            [
-                'source_store_id' => $sourceId,
-                'target_store_id' => $targetId,
-            ],
+            ['source_store_id' => $sourceId, 'target_store_id' => $targetId],
             [
                 'same_merchant'   => $sameMerchant,
                 'sync_categories' => !$this->option('no-categories'),
@@ -74,23 +64,27 @@ class PairStores extends Command
             ]
         );
 
-        // ======== تحديث أدوار المتاجر ========
         $sourceStore->update(['role' => 'source']);
         $targetStore->update(['role' => 'target']);
 
-        // ======== ملخص ========
+        // بدء تجربة مجانية (7 أيام - باقة starter)
+        if ($active) {
+            $sub = Subscription::startTrial($pair, 'starter');
+            $this->info("تجربة مجانية مُفعَّلة: {$sub->max_products} منتج لمدة 7 أيام");
+        }
+
         $this->line(str_repeat('─', 50));
         $this->info($active ? 'زوج مُسجَّل ✅' : 'زوج مُعطَّل ⏸');
         $this->table(
             ['الخاصية', 'القيمة'],
             [
-                ['المصدر',              "{$sourceStore->store_name} ({$sourceId})"],
-                ['الهدف',               "{$targetStore->store_name} ({$targetId})"],
-                ['نفس التاجر',          $sameMerchant ? 'نعم' : 'لا'],
-                ['مزامنة التصنيفات',    $pair->sync_categories ? 'نعم' : 'لا'],
-                ['مزامنة المنتجات',     $pair->sync_products ? 'نعم' : 'لا'],
-                ['مزامنة العملاء',      $pair->sync_customers ? 'نعم ⚠️' : 'لا (PDPL)'],
-                ['الحالة',              $active ? 'نشط' : 'معطّل'],
+                ['المصدر',           "{$sourceStore->store_name} ({$sourceId})"],
+                ['الهدف',            "{$targetStore->store_name} ({$targetId})"],
+                ['نفس التاجر',       $sameMerchant ? 'نعم' : 'لا'],
+                ['مزامنة التصنيفات', $pair->sync_categories ? 'نعم' : 'لا'],
+                ['مزامنة المنتجات',  $pair->sync_products ? 'نعم' : 'لا'],
+                ['مزامنة العملاء',   $pair->sync_customers ? 'نعم ⚠️' : 'لا (PDPL)'],
+                ['الحالة',           $active ? 'نشط' : 'معطّل'],
             ]
         );
 
