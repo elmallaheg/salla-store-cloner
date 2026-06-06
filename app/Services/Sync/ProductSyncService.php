@@ -54,14 +54,14 @@ class ProductSyncService
                 $product = $this->fetchFullProduct($summary);
                 $this->syncOne($product);
                 $count++;
-                $job?->increment(true);
+                $job?->tick(true);
             } catch (\Throwable $e) {
                 Log::error('فشل نسخ منتج', [
                     'id'    => $summary['id'] ?? null,
                     'sku'   => $summary['sku'] ?? null,
                     'error' => $e->getMessage(),
                 ]);
-                $job?->increment(false);
+                $job?->tick(false);
                 $job?->logError((string) ($summary['id'] ?? '?'), $e->getMessage());
             }
         }
