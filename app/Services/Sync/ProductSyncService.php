@@ -19,18 +19,12 @@ class ProductSyncService
         protected int         $targetStoreId,
     ) {}
 
-    /**
-     * ينسخ المنتجات من المصدر حتى حد الباقة.
-     *
-     * @param int|null $maxProducts الحد الأقصى للباقة (null = بلا حد)
-     */
     public function run(?SyncJob $job = null, ?int $maxProducts = null): int
     {
         $products = $this->source->paginate('/products');
         $count    = 0;
 
         foreach ($products as $summary) {
-            // وقف عند بلوغ حد الباقة
             if ($maxProducts !== null && $count >= $maxProducts) {
                 Log::info('وصل لحد الباقة — توقف النسخ', [
                     'max' => $maxProducts, 'synced' => $count,
@@ -134,23 +128,37 @@ class ProductSyncService
 
         $targetCategories = $this->translateCategories($product['categories'] ?? []);
 
+        // استخراج الاسم كنص بسيط (سلة ترجع name كـ string أو object)
+        $name = $product['name'] ?? '';
+        if (is_array($name)) {
+            $name = $name['ar'] ?? $name['en'] ?? reset($name) ?? '';
+        }
+
+        // استخراج الوصف كنص بسيط
+        $description = $product['description'] ?? '';
+        if (is_array($description)) {
+            $description = $description['ar'] ?? $description['en'] ?? reset($description) ?? '';
+        }
+        // إزالة HTML tags إن وجدت
+        $description = strip_tags((string) $description);
+
         $payload = [
-            'name'         => $product['name'],
-            'price'        => (float) $price,
-            'product_type' => $product['type'] ?? 'product',
-            'description'  => $product['description'] ?? '',
-            'quantity'     => (int) ($product['quantity'] ?? 0),
-            'categories'   => $targetCategories,
+            'name'        => $name,
+            'price'       => (float) $price,
+            'type'        => $product['type'] ?? 'product',
+            'description' => $description,
+            'quantity'    => (int) ($product['quantity'] ?? 0),
+            'categories'  => $targetCategories,
         ];
 
-        if (!empty($product['sku']))          $payload['sku']        = $product['sku'];
+        if (!empty($product['sku']))         $payload['sku']        = $product['sku'];
         if (isset($product['sale_price'])) {
             $sp = is_array($product['sale_price']) ? ($product['sale_price']['amount'] ?? null) : $product['sale_price'];
             if ($sp !== null) $payload['sale_price'] = (float) $sp;
         }
-        if (!empty($product['weight']))       $payload['weight']     = $product['weight'];
-        if (isset($product['status']))        $payload['status']     = $product['status'];
-        if (!empty($product['tags']))         $payload['tags']       = $product['tags'];
+        if (!empty($product['weight']))      $payload['weight']     = $product['weight'];
+        if (isset($product['status']))       $payload['status']     = $product['status'];
+        if (!empty($product['tags']))        $payload['tags']       = $product['tags'];
 
         return $payload;
     }
