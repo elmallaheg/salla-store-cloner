@@ -61,7 +61,7 @@ class ProductSyncService
 
         if ($existingTargetId) {
             $this->target->put("/products/{$existingTargetId}", $payload);
-            Log::debug('منتج مُحدَّث', ['source_id' => $sourceId, 'target_id' => $existingTargetId]);
+            Log::debug('منتج مُحدَث', ['source_id' => $sourceId, 'target_id' => $existingTargetId]);
         } else {
             $created = $this->target->post('/products', $payload);
             $newId   = $created['data']['id'] ?? $created['id'] ?? null;
@@ -120,6 +120,23 @@ class ProductSyncService
         return null;
     }
 
+    /**
+     * تحويل قيمة type في GET إلى product_type صالحة لـ POST.
+     * GET ترجع: "product" | "digital" | "service" | "food"
+     * POST يقبل: "simple" | "digital" | "service" | "food"
+     */
+    protected function mapProductType(string $type): string
+    {
+        return match($type) {
+            'product' => 'simple',
+            'simple'  => 'simple',
+            'digital' => 'digital',
+            'service' => 'service',
+            'food'    => 'food',
+            default   => 'simple',
+        };
+    }
+
     protected function buildPayload(array $product): array
     {
         $price = is_array($product['price'] ?? null)
@@ -134,7 +151,7 @@ class ProductSyncService
             $name = $name['ar'] ?? $name['en'] ?? reset($name) ?? '';
         }
 
-        // استخراج الوصف كنص بسيط — null إذا فارغ
+        // استخراج الوصف — null إذا فارغ
         $description = $product['description'] ?? null;
         if (is_array($description)) {
             $description = $description['ar'] ?? $description['en'] ?? reset($description) ?? null;
@@ -144,18 +161,18 @@ class ProductSyncService
         }
 
         $payload = [
-            'name'     => $name,
-            'price'    => (float) $price,
-            'quantity' => (int) ($product['quantity'] ?? 0),
+            'name'         => $name,
+            'price'        => (float) $price,
+            'product_type' => $this->mapProductType($product['type'] ?? 'product'),
+            'quantity'     => (int) ($product['quantity'] ?? 0),
         ];
 
-        // الحقول الاختيارية — نضيفها بس لو فيها قيمة
-        if ($description !== null)        $payload['description'] = $description;
-        if (!empty($targetCategories))    $payload['categories']  = $targetCategories;
-        if (!empty($product['sku']))      $payload['sku']         = $product['sku'];
-        if (!empty($product['weight']))   $payload['weight']      = $product['weight'];
-        if (isset($product['status']))    $payload['status']      = $product['status'];
-        if (!empty($product['tags']))     $payload['tags']        = $product['tags'];
+        if ($description !== null)       $payload['description'] = $description;
+        if (!empty($targetCategories))   $payload['categories']  = $targetCategories;
+        if (!empty($product['sku']))     $payload['sku']         = $product['sku'];
+        if (!empty($product['weight']))  $payload['weight']      = $product['weight'];
+        if (isset($product['status']))   $payload['status']      = $product['status'];
+        if (!empty($product['tags']))    $payload['tags']        = $product['tags'];
 
         if (isset($product['sale_price'])) {
             $sp = is_array($product['sale_price'])
