@@ -9,13 +9,11 @@ Route::post('/salla/webhook', [WebhookController::class, 'handle'])
 
 Route::get('/health', fn() => response()->json(['status' => 'ok', 'timestamp' => now()]));
 
-// Temporary migration runner — protected by secret key
-Route::get('/admin/run-migrate/{source}/{target}', function (string $source, string $target) {
-    if (request('secret') !== env('APP_KEY')) {
+// Temporary migration runner
+Route::get('/admin/run-migrate/{source}/{target}', function (string \$source, string \$target) {
+    if (request('secret') !== 'salla-migrate-2026') {
         return response()->json(['error' => 'unauthorized'], 403);
     }
-    ob_start();
-    Artisan::call('salla:migrate', ['source_store_id' => $source, 'target_store_id' => $target]);
-    $output = ob_get_clean() . Artisan::output();
-    return response()->json(['output' => $output, 'status' => 'done']);
+    Artisan::call('salla:migrate', ['source_store_id' => \$source, 'target_store_id' => \$target]);
+    return response()->json(['output' => Artisan::output(), 'status' => 'done']);
 });
