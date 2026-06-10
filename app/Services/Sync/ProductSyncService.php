@@ -128,12 +128,12 @@ class ProductSyncService
     protected function mapProductType(string $type): string
     {
         return match($type) {
-            'product' => 'simple',
-            'simple'  => 'simple',
+            'product' => 'product',
+            'simple'  => 'product',
             'digital' => 'digital',
             'service' => 'service',
             'food'    => 'food',
-            default   => 'simple',
+            default   => 'product',
         };
     }
 
