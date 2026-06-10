@@ -31,13 +31,11 @@ Route::get('/admin/run-migrate/{source}/{target}', function (string $source, str
         return response()->json([
             'status' => 'failed',
             'error'  => $e->getMessage(),
-            'file'   => $e->getFile(),
-            'line'   => $e->getLine(),
         ], 500);
     }
 });
 
-// Debug: try creating one product and show raw Salla API response
+// Debug: try creating one product — show full raw Salla API response
 Route::get('/admin/test-product/{source}/{target}', function (string $source, string $target) {
     if (request('secret') !== 'salla-migrate-2026') {
         return response()->json(['error' => 'unauthorized'], 403);
@@ -64,22 +62,26 @@ Route::get('/admin/test-product/{source}/{target}', function (string $source, st
         $name = $product['name'] ?? '';
         if (is_array($name)) $name = $name['ar'] ?? $name['en'] ?? reset($name) ?? '';
 
-        // Payload: minimal test — just name + price
+        // minimal payload
         $payload = [
             'name'  => $name,
             'price' => (float) $price,
         ];
 
-        // محاولة الإنشاء وإرجاع الـ response الخام
+        // محاولة الإنشاء — نمسك الـ response body من الـ exception
         try {
-            $http = \Illuminate\Support\Facades\Http::withToken($tgtClient->getAccessToken())
-                ->post('https://api.salla.dev/admin/v2/products', $payload);
-
+            $result = $tgtClient->post('/products', $payload);
             return response()->json([
-                'payload'    => $payload,
-                'status'     => $http->status(),
-                'response'   => $http->json(),
+                'success' => true,
+                'payload' => $payload,
+                'result'  => $result,
             ]);
+        } catch (\Illuminate\Http\Client\RequestException $e) {
+            return response()->json([
+                'payload'           => $payload,
+                'http_status'       => $e->response->status(),
+                'salla_response'    => $e->response->json(),
+            ], 422);
         } catch (\Throwable $e) {
             return response()->json([
                 'payload' => $payload,
