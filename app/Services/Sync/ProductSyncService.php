@@ -169,7 +169,6 @@ class ProductSyncService
 
         if ($description !== null)       $payload['description'] = $description;
         if (!empty($targetCategories))   $payload['categories']  = $targetCategories;
-        if (!empty($product['sku']))     $payload['sku']         = $product['sku'];
         if (!empty($product['weight']))  $payload['weight']      = $product['weight'];
         if (isset($product['status']))   $payload['status']      = $product['status'];
         if (!empty($product['tags']))    $payload['tags']        = $product['tags'];
