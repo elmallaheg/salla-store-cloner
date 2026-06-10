@@ -33,7 +33,7 @@ class WebhookController extends Controller
 
         $merchantId = (int) $request->input('merchant');
         $data       = $request->input('data', []);
-        $data['_merchant'] = $merchantId;
+        $data['merchant'] = $merchantId;
 
         Log::debug('Webhook استُقبل', ['event' => $event, 'merchant' => $merchantId]);
 
