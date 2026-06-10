@@ -14,6 +14,22 @@ Route::get('/admin/run-migrate/{source}/{target}', function (string $source, str
     if (request('secret') !== 'salla-migrate-2026') {
         return response()->json(['error' => 'unauthorized'], 403);
     }
-    Artisan::call('salla:migrate', ['source_store_id' => $source, 'target_store_id' => $target]);
-    return response()->json(['output' => Artisan::output(), 'status' => 'done']);
+    try {
+        $exitCode = Artisan::call('salla:migrate', [
+            'source' => $source,
+            'target' => $target,
+        ]);
+        return response()->json([
+            'status' => 'done',
+            'exit_code' => $exitCode,
+            'output' => Artisan::output(),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'failed',
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ], 500);
+    }
 });
